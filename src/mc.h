@@ -18,7 +18,9 @@ extern char *user_input;
 
 /* ===== tokenize.c ===== */
 typedef enum {
+    TK_IDENT,   /* identifiers */
     TK_PUNCT,
+    TK_KEYWORD, /* return, if, else, while, for, ... */
     TK_NUM,
     TK_EOF,
 } TokenKind;
@@ -38,30 +40,51 @@ Token *skip(Token *tok, const char *op);
 int    get_number(Token *tok);
 
 /* ===== parse.c ===== */
+
+typedef struct Obj Obj;
+struct Obj {
+    Obj  *next;
+    char *name;
+    int   offset;  /* offset from rbp */
+};
+
+typedef struct Function Function;
+struct Function {
+    struct Node *body;     /* compound statement (a chain of stmts) */
+    Obj   *locals;
+    int    stack_size;
+};
+
 typedef enum {
-    ND_ADD,    /* + */
-    ND_SUB,    /* - */
-    ND_MUL,    /* * */
-    ND_DIV,    /* / */
-    ND_EQ,     /* == */
-    ND_NE,     /* != */
-    ND_LT,     /* <  */
-    ND_LE,     /* <= */
-    ND_NEG,    /* unary - */
-    ND_NUM,    /* integer */
+    ND_ADD,
+    ND_SUB,
+    ND_MUL,
+    ND_DIV,
+    ND_EQ,
+    ND_NE,
+    ND_LT,
+    ND_LE,
+    ND_NEG,
+    ND_ASSIGN,      /* = */
+    ND_VAR,         /* variable reference */
+    ND_NUM,
+    ND_RETURN,      /* return expr ; */
+    ND_EXPR_STMT,   /* expr; */
 } NodeKind;
 
 typedef struct Node Node;
 struct Node {
     NodeKind kind;
+    Node *next;     /* statement chain */
     Node *lhs;
     Node *rhs;
-    int   val;   /* ND_NUM */
+    Obj  *var;      /* ND_VAR */
+    int   val;      /* ND_NUM */
 };
 
-Node *parse(Token *tok);
+Function *parse(Token *tok);
 
 /* ===== codegen.c ===== */
-void codegen(Node *node);
+void codegen(Function *prog);
 
 #endif /* MC_H */

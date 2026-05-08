@@ -31,9 +31,11 @@ static char *read_file(const char *path) {
 
 static const char *tk_name(TokenKind k) {
     switch (k) {
-    case TK_PUNCT: return "PUNCT";
-    case TK_NUM:   return "NUM";
-    case TK_EOF:   return "EOF";
+    case TK_IDENT:   return "IDENT";
+    case TK_KEYWORD: return "KW";
+    case TK_PUNCT:   return "PUNCT";
+    case TK_NUM:     return "NUM";
+    case TK_EOF:     return "EOF";
     }
     return "?";
 }
@@ -61,9 +63,9 @@ int main(int argc, char **argv) {
         return dump_tokens(argv[2]);
     }
 
-    char  *src  = read_file(argv[1]);
-    Token *tok  = tokenize(src);
-    Node  *node = parse(tok);
-    codegen(node);
+    char     *src  = read_file(argv[1]);
+    Token    *tok  = tokenize(src);
+    Function *prog = parse(tok);
+    codegen(prog);
     return 0;
 }

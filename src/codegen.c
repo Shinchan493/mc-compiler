@@ -1,15 +1,14 @@
 #include "mc.h"
 
 /*
- * Stack-machine code generator.
+ * Stack-machine x86-64 backend, System V ABI.
  *
- *   gen_expr(n)  ── leaves the value of n in %rax.
+ *   gen_addr(n) ── leaves the address  of n's lvalue in %rax
+ *   gen_expr(n) ── leaves the value of n              in %rax
  *
- * For a binary op: evaluate rhs, push, evaluate lhs, pop rhs into %rdi,
- * then op %rdi, %rax. This avoids any register allocation logic. It's
- * obviously suboptimal — every sub-expression hits memory — but it's
- * trivial to get right and to reason about, which is the whole point of
- * a teaching compiler.
+ * For each binary op we eval rhs, push, eval lhs, pop rhs into rdi,
+ * then op rdi,rax. This costs a memory round-trip per sub-expression
+ * but it's bulletproof (no register pressure to think about).
  */
 
 static int depth;
@@ -24,6 +23,16 @@ static void pop(const char *reg) {
     depth--;
 }
 
+static void gen_expr(Node *node);
+
+static void gen_addr(Node *node) {
+    if (node->kind == ND_VAR) {
+        printf("  lea %d(%%rbp), %%rax\n", node->var->offset);
+        return;
+    }
+    error("not an lvalue");
+}
+
 static void gen_expr(Node *node) {
     switch (node->kind) {
     case ND_NUM:
@@ -33,11 +42,21 @@ static void gen_expr(Node *node) {
         gen_expr(node->lhs);
         printf("  neg %%rax\n");
         return;
+    case ND_VAR:
+        gen_addr(node);
+        printf("  mov (%%rax), %%rax\n");
+        return;
+    case ND_ASSIGN:
+        gen_addr(node->lhs);
+        push();
+        gen_expr(node->rhs);
+        pop("%rdi");
+        printf("  mov %%rax, (%%rdi)\n");
+        return;
     default:
         break;
     }
 
-    /* Binary op: rhs first so lhs ends up on top. */
     gen_expr(node->rhs);
     push();
     gen_expr(node->lhs);
@@ -51,10 +70,7 @@ static void gen_expr(Node *node) {
         printf("  cqo\n");
         printf("  idiv %%rdi\n");
         return;
-    case ND_EQ:
-    case ND_NE:
-    case ND_LT:
-    case ND_LE:
+    case ND_EQ: case ND_NE: case ND_LT: case ND_LE:
         printf("  cmp %%rdi, %%rax\n");
         if (node->kind == ND_EQ) printf("  sete  %%al\n");
         if (node->kind == ND_NE) printf("  setne %%al\n");
@@ -67,12 +83,40 @@ static void gen_expr(Node *node) {
     }
 }
 
-void codegen(Node *node) {
+static void gen_stmt(Node *node) {
+    switch (node->kind) {
+    case ND_RETURN:
+        gen_expr(node->lhs);
+        printf("  jmp .L.return\n");
+        return;
+    case ND_EXPR_STMT:
+        gen_expr(node->lhs);
+        return;
+    default:
+        error("invalid statement");
+    }
+}
+
+void codegen(Function *prog) {
     printf("  .text\n");
     printf("  .globl main\n");
     printf("main:\n");
-    gen_expr(node);
-    printf("  ret\n");
 
-    assert(depth == 0);
+    /* Prologue. */
+    printf("  push %%rbp\n");
+    printf("  mov %%rsp, %%rbp\n");
+    if (prog->stack_size)
+        printf("  sub $%d, %%rsp\n", prog->stack_size);
+
+    for (Node *n = prog->body; n; n = n->next) {
+        gen_stmt(n);
+        assert(depth == 0);
+    }
+
+    /* Implicit return 0 if execution falls off the end. */
+    printf("  mov $0, %%rax\n");
+    printf(".L.return:\n");
+    printf("  mov %%rbp, %%rsp\n");
+    printf("  pop %%rbp\n");
+    printf("  ret\n");
 }

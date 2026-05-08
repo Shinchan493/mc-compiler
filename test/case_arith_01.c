@@ -1,2 +1,2 @@
 // expect=42
-42;
+return 42;
