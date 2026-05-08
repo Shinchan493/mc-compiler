@@ -3,10 +3,13 @@
 /*
  * Recursive-descent parser.
  *
- *   program   = stmt*
- *   stmt      = "return" expr ";"
- *             | expr-stmt
- *   expr-stmt = expr ";"
+ *   program     = "{" compound-stmt
+ *   compound-stmt = stmt* "}"
+ *   stmt        = "return" expr ";"
+ *               | "{" compound-stmt
+ *               | expr-stmt
+ *   expr-stmt   = ";"            -- null statement
+ *               | expr ";"
  *   expr      = assign
  *   assign    = equality ("=" assign)?
  *   equality  = relational ("==" relational | "!=" relational)*
@@ -23,6 +26,7 @@
 
 static Obj *locals;
 
+static Node *compound_stmt(Token **rest, Token *tok);
 static Node *stmt(Token **rest, Token *tok);
 static Node *expr_stmt(Token **rest, Token *tok);
 static Node *expr(Token **rest, Token *tok);
@@ -100,10 +104,29 @@ static Node *stmt(Token **rest, Token *tok) {
         *rest = skip(tok, ";");
         return node;
     }
+    if (equal(tok, "{"))
+        return compound_stmt(rest, tok->next);
     return expr_stmt(rest, tok);
 }
 
+static Node *compound_stmt(Token **rest, Token *tok) {
+    Node head = {0};
+    Node *cur = &head;
+    while (!equal(tok, "}"))
+        cur = cur->next = stmt(&tok, tok);
+    Node *node = new_node(ND_BLOCK);
+    node->body = head.next;
+    *rest = tok->next;
+    return node;
+}
+
 static Node *expr_stmt(Token **rest, Token *tok) {
+    /* Null statement. */
+    if (equal(tok, ";")) {
+        Node *n = new_node(ND_BLOCK);
+        *rest = tok->next;
+        return n;
+    }
     Node *node = new_unary(ND_EXPR_STMT, expr(&tok, tok));
     *rest = skip(tok, ";");
     return node;
@@ -213,11 +236,17 @@ static void assign_lvar_offsets(Function *prog) {
 Function *parse(Token *tok) {
     locals = NULL;
 
-    /* Build a chain of stmt nodes via ->next. */
+    /* The whole program is a (possibly braceless) sequence of statements.
+     * Wrap the top level in an implicit block so codegen has a single
+     * entry point. */
     Node head = {0};
     Node *cur = &head;
-    while (tok->kind != TK_EOF) {
-        cur = cur->next = stmt(&tok, tok);
+    if (equal(tok, "{")) {
+        Node *blk = compound_stmt(&tok, tok->next);
+        cur = cur->next = blk;
+    } else {
+        while (tok->kind != TK_EOF)
+            cur = cur->next = stmt(&tok, tok);
     }
 
     Function *prog = calloc(1, sizeof(Function));

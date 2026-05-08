@@ -69,6 +69,7 @@ typedef enum {
     ND_VAR,         /* variable reference */
     ND_NUM,
     ND_RETURN,      /* return expr ; */
+    ND_BLOCK,       /* { ... } : body holds the chain */
     ND_EXPR_STMT,   /* expr; */
 } NodeKind;
 
@@ -78,6 +79,7 @@ struct Node {
     Node *next;     /* statement chain */
     Node *lhs;
     Node *rhs;
+    Node *body;     /* ND_BLOCK : statement chain inside braces */
     Obj  *var;      /* ND_VAR */
     int   val;      /* ND_NUM */
 };
