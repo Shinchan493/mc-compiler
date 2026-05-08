@@ -14,13 +14,12 @@ void error(const char *fmt, ...);
 void error_at(char *loc, const char *fmt, ...);
 void verror_at(char *loc, const char *fmt, va_list ap);
 
-/* current source buffer (set by main before tokenize) */
 extern char *user_input;
 
 /* ===== tokenize.c ===== */
 typedef enum {
-    TK_PUNCT,   /* punctuators / operators */
-    TK_NUM,     /* numeric literal */
+    TK_PUNCT,
+    TK_NUM,
     TK_EOF,
 } TokenKind;
 
@@ -28,14 +27,36 @@ typedef struct Token Token;
 struct Token {
     TokenKind kind;
     Token *next;
-    int   val;     /* TK_NUM */
-    char *loc;     /* token start in source */
-    int   len;     /* token length in source */
+    int   val;
+    char *loc;
+    int   len;
 };
 
 Token *tokenize(char *p);
 bool   equal(Token *tok, const char *op);
 Token *skip(Token *tok, const char *op);
 int    get_number(Token *tok);
+
+/* ===== parse.c ===== */
+typedef enum {
+    ND_ADD,    /* + */
+    ND_SUB,    /* - */
+    ND_MUL,    /* * */
+    ND_DIV,    /* / */
+    ND_NUM,    /* integer */
+} NodeKind;
+
+typedef struct Node Node;
+struct Node {
+    NodeKind kind;
+    Node *lhs;
+    Node *rhs;
+    int   val;   /* ND_NUM */
+};
+
+Node *parse(Token *tok);
+
+/* ===== codegen.c ===== */
+void codegen(Node *node);
 
 #endif /* MC_H */

@@ -53,6 +53,21 @@ Token *tokenize(char *p) {
             continue;
         }
 
+        /* Line comment. */
+        if (p[0] == '/' && p[1] == '/') {
+            p += 2;
+            while (*p && *p != '\n') p++;
+            continue;
+        }
+
+        /* Block comment. */
+        if (p[0] == '/' && p[1] == '*') {
+            char *q = strstr(p + 2, "*/");
+            if (!q) error_at(p, "unterminated block comment");
+            p = q + 2;
+            continue;
+        }
+
         if (isdigit((unsigned char)*p)) {
             char *q = p;
             long  v = strtol(p, &p, 10);

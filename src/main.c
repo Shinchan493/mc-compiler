@@ -1,15 +1,12 @@
 #include "mc.h"
 
-/* Read entire file into a NUL-terminated buffer. Portable across MinGW
- * and glibc — no getline. */
 static char *read_file(const char *path) {
     FILE *fp;
     if (strcmp(path, "-") == 0) {
         fp = stdin;
     } else {
         fp = fopen(path, "rb");
-        if (!fp)
-            error("cannot open %s", path);
+        if (!fp) error("cannot open %s", path);
     }
 
     size_t cap = 4096, len = 0;
@@ -28,7 +25,6 @@ static char *read_file(const char *path) {
     }
 
     if (fp != stdin) fclose(fp);
-    /* Ensure trailing newline + NUL. */
     buf[len] = '\0';
     return buf;
 }
@@ -65,8 +61,9 @@ int main(int argc, char **argv) {
         return dump_tokens(argv[2]);
     }
 
-    /* TODO: parse + codegen will land in the next commit. For now just
-     * tokenize so we can at least exercise the lexer with --dump-tokens. */
-    fprintf(stderr, "mc: parser not yet implemented\n");
-    return 1;
+    char  *src  = read_file(argv[1]);
+    Token *tok  = tokenize(src);
+    Node  *node = parse(tok);
+    codegen(node);
+    return 0;
 }
