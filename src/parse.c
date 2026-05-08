@@ -20,6 +20,7 @@ static Node *equality(Token **rest, Token *tok);
 static Node *relational(Token **rest, Token *tok);
 static Node *add(Token **rest, Token *tok);
 static Node *mul (Token **rest, Token *tok);
+static Node *unary(Token **rest, Token *tok);
 static Node *primary(Token **rest, Token *tok);
 
 static Node *new_node(NodeKind kind) {
@@ -32,6 +33,12 @@ static Node *new_binary(NodeKind kind, Node *lhs, Node *rhs) {
     Node *n = new_node(kind);
     n->lhs = lhs;
     n->rhs = rhs;
+    return n;
+}
+
+static Node *new_unary(NodeKind kind, Node *expr) {
+    Node *n = new_node(kind);
+    n->lhs = expr;
     return n;
 }
 
@@ -79,13 +86,19 @@ static Node *add(Token **rest, Token *tok) {
 }
 
 static Node *mul(Token **rest, Token *tok) {
-    Node *node = primary(&tok, tok);
+    Node *node = unary(&tok, tok);
     for (;;) {
-        if (equal(tok, "*")) { node = new_binary(ND_MUL, node, primary(&tok, tok->next)); continue; }
-        if (equal(tok, "/")) { node = new_binary(ND_DIV, node, primary(&tok, tok->next)); continue; }
+        if (equal(tok, "*")) { node = new_binary(ND_MUL, node, unary(&tok, tok->next)); continue; }
+        if (equal(tok, "/")) { node = new_binary(ND_DIV, node, unary(&tok, tok->next)); continue; }
         *rest = tok;
         return node;
     }
+}
+
+static Node *unary(Token **rest, Token *tok) {
+    if (equal(tok, "+")) return unary(rest, tok->next);
+    if (equal(tok, "-")) return new_unary(ND_NEG, unary(rest, tok->next));
+    return primary(rest, tok);
 }
 
 static Node *primary(Token **rest, Token *tok) {
