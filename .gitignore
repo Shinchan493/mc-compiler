@@ -1,0 +1,21 @@
+# Build artifacts
+mc
+mc.exe
+*.o
+*.s
+*.obj
+
+# Test artifacts
+tmp.s
+tmp.out
+tmp.exe
+err
+test/tmp_*
+
+# Editor / OS
+*.swp
+*~
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
