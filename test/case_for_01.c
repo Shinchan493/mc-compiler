@@ -1,2 +1,2 @@
 // expect=55
-{ sum=0; for (i=1; i<=10; i=i+1) sum=sum+i; return sum; }
+int main() { sum=0; for (i=1; i<=10; i=i+1) sum=sum+i; return sum; }

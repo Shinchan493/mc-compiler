@@ -3,25 +3,33 @@
 /*
  * Recursive-descent parser.
  *
- *   program     = "{" compound-stmt
+ *   program       = function-def*
+ *   function-def  = "int" ident "(" params? ")" "{" compound-stmt
+ *   params        = "int" ident ("," "int" ident)*
  *   compound-stmt = stmt* "}"
- *   stmt        = "return" expr ";"
- *               | "{" compound-stmt
- *               | expr-stmt
- *   expr-stmt   = ";"            -- null statement
- *               | expr ";"
- *   expr      = assign
- *   assign    = equality ("=" assign)?
- *   equality  = relational ("==" relational | "!=" relational)*
- *   relational= add ("<" add | "<=" add | ">" add | ">=" add)*
- *   add       = mul ("+" mul | "-" mul)*
- *   mul       = unary ("*" unary | "/" unary)*
- *   unary     = ("+" | "-") unary | primary
- *   primary   = num | ident | "(" expr ")"
+ *   stmt          = "return" expr ";"
+ *                 | "if" "(" expr ")" stmt ("else" stmt)?
+ *                 | "while" "(" expr ")" stmt
+ *                 | "for" "(" expr-stmt expr? ";" expr? ")" stmt
+ *                 | "{" compound-stmt
+ *                 | expr-stmt
+ *   expr-stmt     = ";" | expr ";"
+ *   expr          = assign
+ *   assign        = equality ("=" assign)?
+ *   equality      = relational ("==" relational | "!=" relational)*
+ *   relational    = add ("<" add | "<=" add | ">" add | ">=" add)*
+ *   add           = mul ("+" mul | "-" mul)*
+ *   mul           = unary ("*" unary | "/" unary)*
+ *   unary         = ("+" | "-") unary | primary
+ *   primary       = num
+ *                 | ident ("(" args? ")")?
+ *                 | "(" expr ")"
+ *   args          = expr ("," expr)*
  *
- * Variables aren't declared explicitly yet — any identifier introduces
- * a new local on first use, chibicc-style. Block scoping and explicit
- * 'int x;' declarations come with the type system later.
+ * Variables aren't fully declared yet — any identifier inside a body
+ * introduces a new local on first reference (chibicc style). Function
+ * parameters ARE declared explicitly with 'int' so they get inserted
+ * into the local table up front.
  */
 
 static Obj *locals;
@@ -247,6 +255,24 @@ static Node *primary(Token **rest, Token *tok) {
     }
 
     if (tok->kind == TK_IDENT) {
+        /* Function call: ident '(' ... ')' */
+        if (equal(tok->next, "(")) {
+            Node *node = new_node(ND_FUNCALL);
+            node->funcname = strndup_(tok->loc, tok->len);
+
+            Node head = {0};
+            Node *cur = &head;
+            tok = tok->next->next;
+            while (!equal(tok, ")")) {
+                if (cur != &head)
+                    tok = skip(tok, ",");
+                cur = cur->next = assign(&tok, tok);
+            }
+            *rest = skip(tok, ")");
+            node->args = head.next;
+            return node;
+        }
+
         Obj *v = find_var(tok);
         if (!v) v = new_lvar(strndup_(tok->loc, tok->len));
         *rest = tok->next;
@@ -272,25 +298,61 @@ static void assign_lvar_offsets(Function *prog) {
     prog->stack_size = align_to(offset, 16);
 }
 
-Function *parse(Token *tok) {
-    locals = NULL;
-
-    /* The whole program is a (possibly braceless) sequence of statements.
-     * Wrap the top level in an implicit block so codegen has a single
-     * entry point. */
-    Node head = {0};
-    Node *cur = &head;
-    if (equal(tok, "{")) {
-        Node *blk = compound_stmt(&tok, tok->next);
-        cur = cur->next = blk;
-    } else {
-        while (tok->kind != TK_EOF)
-            cur = cur->next = stmt(&tok, tok);
+/* Parse a parameter list. Returns the COUNT of parameters. The first
+ * `count` entries of `locals` (in insertion order) are the parameters.
+ * Note: because new_lvar() pushes onto the front of `locals`, the head
+ * of `locals` after this returns is the LAST parameter. The codegen
+ * walks `locals` and uses the same convention. */
+static int parse_params(Token **rest, Token *tok) {
+    int n = 0;
+    while (!equal(tok, ")")) {
+        if (n > 0)
+            tok = skip(tok, ",");
+        if (!equal(tok, "int"))
+            error_at(tok->loc, "expected 'int' before parameter");
+        tok = tok->next;
+        if (tok->kind != TK_IDENT)
+            error_at(tok->loc, "expected parameter name");
+        new_lvar(strndup_(tok->loc, tok->len));
+        n++;
+        tok = tok->next;
     }
+    *rest = tok;
+    return n;
+}
 
-    Function *prog = calloc(1, sizeof(Function));
-    prog->body   = head.next;
-    prog->locals = locals;
-    assign_lvar_offsets(prog);
-    return prog;
+static Function *function(Token **rest, Token *tok) {
+    /* "int" name "(" params? ")" "{" body "}" */
+    if (!equal(tok, "int"))
+        error_at(tok->loc, "expected 'int' at start of function");
+    tok = tok->next;
+
+    if (tok->kind != TK_IDENT)
+        error_at(tok->loc, "expected function name");
+    char *name = strndup_(tok->loc, tok->len);
+    tok = tok->next;
+
+    locals = NULL; /* fresh frame per function */
+
+    tok = skip(tok, "(");
+    int n_params = parse_params(&tok, tok);
+    tok = skip(tok, ")");
+    tok = skip(tok, "{");
+
+    Function *fn = calloc(1, sizeof(Function));
+    fn->name     = name;
+    fn->n_params = n_params;
+    fn->body     = compound_stmt(&tok, tok); /* consumes the closing '}' */
+    fn->locals   = locals;
+    assign_lvar_offsets(fn);
+    *rest = tok;
+    return fn;
+}
+
+Function *parse(Token *tok) {
+    Function head = {0};
+    Function *cur = &head;
+    while (tok->kind != TK_EOF)
+        cur = cur->next = function(&tok, tok);
+    return head.next;
 }

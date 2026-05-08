@@ -50,6 +50,13 @@ struct Obj {
 
 typedef struct Function Function;
 struct Function {
+    Function *next;        /* next function in program */
+    char     *name;        /* function name */
+    int       n_params;    /* number of parameters; the first n_params
+                              entries of `locals` (insertion order) are
+                              them. Since locals is built by pushing onto
+                              the head, walking `locals` finds them in
+                              REVERSE source order. */
     struct Node *body;     /* compound statement (a chain of stmts) */
     Obj   *locals;
     int    stack_size;
@@ -68,6 +75,7 @@ typedef enum {
     ND_ASSIGN,      /* = */
     ND_VAR,         /* variable reference */
     ND_NUM,
+    ND_FUNCALL,     /* function call: funcname(args...) */
     ND_RETURN,      /* return expr ; */
     ND_BLOCK,       /* { ... } : body holds the chain */
     ND_IF,          /* if (cond) then else els */
@@ -87,6 +95,8 @@ struct Node {
     Node *inc;      /* ND_FOR (for-loop step) */
     Node *then;     /* ND_IF, ND_FOR body */
     Node *els;      /* ND_IF */
+    char *funcname; /* ND_FUNCALL */
+    Node *args;     /* ND_FUNCALL : argument chain via ->next */
     Obj  *var;      /* ND_VAR */
     int   val;      /* ND_NUM */
 };

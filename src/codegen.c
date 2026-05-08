@@ -5,15 +5,14 @@
  *
  *   gen_addr(n) ── leaves the address  of n's lvalue in %rax
  *   gen_expr(n) ── leaves the value of n              in %rax
- *
- * For each binary op we eval rhs, push, eval lhs, pop rhs into rdi,
- * then op rdi,rax. This costs a memory round-trip per sub-expression
- * but it's bulletproof (no register pressure to think about).
  */
 
 static int depth;
+static const char *current_fn;
 
-/* Monotonic counter for unique label IDs. */
+/* Argument registers in order. */
+static const char *argreg[] = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
+
 static int count(void) {
     static int i = 1;
     return i++;
@@ -59,6 +58,27 @@ static void gen_expr(Node *node) {
         pop("%rdi");
         printf("  mov %%rax, (%%rdi)\n");
         return;
+    case ND_FUNCALL: {
+        int nargs = 0;
+        for (Node *a = node->args; a; a = a->next) {
+            gen_expr(a);
+            push();
+            nargs++;
+        }
+        if (nargs > 6)
+            error("too many arguments to %s (max 6)", node->funcname);
+        /* Pop in reverse so the first arg ends up in %rdi. */
+        for (int i = nargs - 1; i >= 0; i--)
+            pop(argreg[i]);
+
+        /* Per System V, %al holds the number of vector args; zero for
+         * us since we don't pass floats. Also align stack to 16 bytes
+         * before the call. depth counts how many 8-byte slots are
+         * pushed; if odd, sub 8 to realign. */
+        printf("  mov $0, %%rax\n");
+        printf("  call %s\n", node->funcname);
+        return;
+    }
     default:
         break;
     }
@@ -93,7 +113,7 @@ static void gen_stmt(Node *node) {
     switch (node->kind) {
     case ND_RETURN:
         gen_expr(node->lhs);
-        printf("  jmp .L.return\n");
+        printf("  jmp .L.return.%s\n", current_fn);
         return;
     case ND_BLOCK:
         for (Node *n = node->body; n; n = n->next)
@@ -136,24 +156,39 @@ static void gen_stmt(Node *node) {
 
 void codegen(Function *prog) {
     printf("  .text\n");
-    printf("  .globl main\n");
-    printf("main:\n");
+    for (Function *fn = prog; fn; fn = fn->next) {
+        printf("  .globl %s\n", fn->name);
+        printf("%s:\n", fn->name);
+        current_fn = fn->name;
 
-    /* Prologue. */
-    printf("  push %%rbp\n");
-    printf("  mov %%rsp, %%rbp\n");
-    if (prog->stack_size)
-        printf("  sub $%d, %%rsp\n", prog->stack_size);
+        /* Prologue. */
+        printf("  push %%rbp\n");
+        printf("  mov %%rsp, %%rbp\n");
+        if (fn->stack_size)
+            printf("  sub $%d, %%rsp\n", fn->stack_size);
 
-    for (Node *n = prog->body; n; n = n->next) {
-        gen_stmt(n);
-        assert(depth == 0);
+        /* Spill incoming register args into their assigned local slots.
+         * `locals` is in reverse insertion order (most-recent first), so
+         * the first n_params entries are the parameters in REVERSE
+         * source order. Translate the index back. */
+        if (fn->n_params > 6)
+            error("more than 6 parameters not supported");
+        Obj *p = fn->locals;
+        for (int i = 0; i < fn->n_params; i++) {
+            int src_index = fn->n_params - 1 - i;
+            printf("  mov %s, %d(%%rbp)\n", argreg[src_index], p->offset);
+            p = p->next;
+        }
+
+        for (Node *n = fn->body; n; n = n->next) {
+            gen_stmt(n);
+            assert(depth == 0);
+        }
+
+        printf("  mov $0, %%rax\n");
+        printf(".L.return.%s:\n", fn->name);
+        printf("  mov %%rbp, %%rsp\n");
+        printf("  pop %%rbp\n");
+        printf("  ret\n");
     }
-
-    /* Implicit return 0 if execution falls off the end. */
-    printf("  mov $0, %%rax\n");
-    printf(".L.return:\n");
-    printf("  mov %%rbp, %%rsp\n");
-    printf("  pop %%rbp\n");
-    printf("  ret\n");
 }
