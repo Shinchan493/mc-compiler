@@ -3,17 +3,22 @@
 /*
  * Recursive-descent parser, layered by precedence:
  *
- *   expr    = mul ("+" mul | "-" mul)*
- *   mul     = unary ("*" unary | "/" unary)*
- *   unary   = ("+" | "-")? primary       -- next commit
- *   primary = num | "(" expr ")"
+ *   expr       = equality
+ *   equality   = relational ("==" relational | "!=" relational)*
+ *   relational = add ("<" add | "<=" add | ">" add | ">=" add)*
+ *   add        = mul ("+" mul | "-" mul)*
+ *   mul        = unary ("*" unary | "/" unary)*
+ *   unary      = ("+" | "-")? primary           -- next commit
+ *   primary    = num | "(" expr ")"
  *
- * For this commit we only handle add/sub/mul/div + parens. Unary and
- * comparisons land in subsequent commits. The whole input is a single
- * expression terminated by ';'.
+ * '>' / '>=' are desugared to '<' / '<=' with operands swapped, so
+ * codegen only needs ND_LT and ND_LE.
  */
 
 static Node *expr(Token **rest, Token *tok);
+static Node *equality(Token **rest, Token *tok);
+static Node *relational(Token **rest, Token *tok);
+static Node *add(Token **rest, Token *tok);
 static Node *mul (Token **rest, Token *tok);
 static Node *primary(Token **rest, Token *tok);
 
@@ -37,6 +42,33 @@ static Node *new_num(int val) {
 }
 
 static Node *expr(Token **rest, Token *tok) {
+    return equality(rest, tok);
+}
+
+static Node *equality(Token **rest, Token *tok) {
+    Node *node = relational(&tok, tok);
+    for (;;) {
+        if (equal(tok, "==")) { node = new_binary(ND_EQ, node, relational(&tok, tok->next)); continue; }
+        if (equal(tok, "!=")) { node = new_binary(ND_NE, node, relational(&tok, tok->next)); continue; }
+        *rest = tok;
+        return node;
+    }
+}
+
+static Node *relational(Token **rest, Token *tok) {
+    Node *node = add(&tok, tok);
+    for (;;) {
+        if (equal(tok, "<"))  { node = new_binary(ND_LT, node, add(&tok, tok->next)); continue; }
+        if (equal(tok, "<=")) { node = new_binary(ND_LE, node, add(&tok, tok->next)); continue; }
+        /* '>'  is "lhs > rhs"  ==  "rhs < lhs" */
+        if (equal(tok, ">"))  { node = new_binary(ND_LT, add(&tok, tok->next), node); continue; }
+        if (equal(tok, ">=")) { node = new_binary(ND_LE, add(&tok, tok->next), node); continue; }
+        *rest = tok;
+        return node;
+    }
+}
+
+static Node *add(Token **rest, Token *tok) {
     Node *node = mul(&tok, tok);
     for (;;) {
         if (equal(tok, "+")) { node = new_binary(ND_ADD, node, mul(&tok, tok->next)); continue; }
