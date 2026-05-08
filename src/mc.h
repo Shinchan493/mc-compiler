@@ -70,6 +70,7 @@ typedef enum {
     ND_NUM,
     ND_RETURN,      /* return expr ; */
     ND_BLOCK,       /* { ... } : body holds the chain */
+    ND_IF,          /* if (cond) then else els */
     ND_EXPR_STMT,   /* expr; */
 } NodeKind;
 
@@ -80,6 +81,9 @@ struct Node {
     Node *lhs;
     Node *rhs;
     Node *body;     /* ND_BLOCK : statement chain inside braces */
+    Node *cond;     /* ND_IF, loops */
+    Node *then;     /* ND_IF, loops */
+    Node *els;      /* ND_IF */
     Obj  *var;      /* ND_VAR */
     int   val;      /* ND_NUM */
 };
