@@ -10,13 +10,26 @@
 static int depth;
 static const char *current_fn;
 
-/* When loading from an address whose type is "array", we instead leave
- * the address itself in %rax (array-to-pointer decay; an array cannot
- * be a value). Returns true if the load was suppressed. */
-static bool load_unless_array(Type *ty) {
-    if (ty && ty->kind == TY_ARRAY) return true;
-    printf("  mov (%%rax), %%rax\n");
-    return false;
+/* Load the value at the address in %rax into %rax, with width chosen
+ * by the result type:
+ *   TY_ARRAY : don't load (array decays to address; address stays in %rax)
+ *   TY_CHAR  : 1-byte signed load (movsbq)
+ *   default  : 8-byte load (we treat int / ptr as 8 bytes)
+ */
+static void load(Type *ty) {
+    if (ty && ty->kind == TY_ARRAY) return;
+    if (ty && ty->kind == TY_CHAR)
+        printf("  movsbq (%%rax), %%rax\n");
+    else
+        printf("  mov (%%rax), %%rax\n");
+}
+
+/* Store %rax into the address in %rdi, width chosen by destination type. */
+static void store(Type *ty) {
+    if (ty && ty->kind == TY_CHAR)
+        printf("  mov %%al, (%%rdi)\n");
+    else
+        printf("  mov %%rax, (%%rdi)\n");
 }
 
 /* Argument registers in order. */
@@ -41,7 +54,10 @@ static void gen_expr(Node *node);
 
 static void gen_addr(Node *node) {
     if (node->kind == ND_VAR) {
-        printf("  lea %d(%%rbp), %%rax\n", node->var->offset);
+        if (node->var->is_local)
+            printf("  lea %d(%%rbp), %%rax\n", node->var->offset);
+        else
+            printf("  lea %s(%%rip), %%rax\n", node->var->name);
         return;
     }
     if (node->kind == ND_DEREF) {
@@ -63,21 +79,21 @@ static void gen_expr(Node *node) {
         return;
     case ND_VAR:
         gen_addr(node);
-        load_unless_array(node->ty);
+        load(node->ty);
         return;
     case ND_ASSIGN:
         gen_addr(node->lhs);
         push();
         gen_expr(node->rhs);
         pop("%rdi");
-        printf("  mov %%rax, (%%rdi)\n");
+        store(node->lhs->ty);
         return;
     case ND_ADDR:
         gen_addr(node->lhs);
         return;
     case ND_DEREF:
         gen_expr(node->lhs);
-        load_unless_array(node->ty);
+        load(node->ty);
         return;
     case ND_FUNCALL: {
         int nargs = 0;
@@ -175,12 +191,30 @@ static void gen_stmt(Node *node) {
     }
 }
 
+/* Emit the contents of the global symbol table to the .data section.
+ * For now every global has either NULL init_data (zero-fill via .zero)
+ * or non-NULL init_data emitted as raw bytes. */
+static void emit_data(void) {
+    if (!globals) return;
+    printf("  .data\n");
+    for (Obj *g = globals; g; g = g->next) {
+        printf("%s:\n", g->name);
+        if (g->init_data) {
+            for (int i = 0; i < g->init_data_len; i++)
+                printf("  .byte %d\n", (unsigned char)g->init_data[i]);
+        } else {
+            printf("  .zero %d\n", size_of(g->ty));
+        }
+    }
+}
+
 void codegen(Function *prog) {
     /* Run the type pass over each function's AST so that pointer-arith
      * scaling is materialised into the tree before codegen runs. */
     for (Function *fn = prog; fn; fn = fn->next)
         add_type(fn->body);
 
+    emit_data();
     printf("  .text\n");
     for (Function *fn = prog; fn; fn = fn->next) {
         printf("  .globl %s\n", fn->name);

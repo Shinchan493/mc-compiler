@@ -35,6 +35,7 @@ static const char *tk_name(TokenKind k) {
     case TK_KEYWORD: return "KW";
     case TK_PUNCT:   return "PUNCT";
     case TK_NUM:     return "NUM";
+    case TK_STR:     return "STR";
     case TK_EOF:     return "EOF";
     }
     return "?";

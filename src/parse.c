@@ -37,6 +37,19 @@
  */
 
 static Obj *locals;
+Obj *globals;        /* exported via mc.h; codegen reads it. */
+
+/* Pure check — can this token start a type? */
+static bool is_typename(Token *tok) {
+    return equal(tok, "int") || equal(tok, "char");
+}
+
+static Type *declspec(Token **rest, Token *tok) {
+    if (equal(tok, "int"))  { *rest = tok->next; return ty_int;  }
+    if (equal(tok, "char")) { *rest = tok->next; return ty_char; }
+    error_at(tok->loc, "expected a type name");
+    return NULL;
+}
 
 static Node *compound_stmt(Token **rest, Token *tok);
 static Node *declaration(Token **rest, Token *tok);
@@ -97,10 +110,40 @@ static Obj *find_var(Token *tok) {
 
 static Obj *new_lvar(char *name, Type *ty) {
     Obj *v = calloc(1, sizeof(Obj));
-    v->name = name;
-    v->ty   = ty;
-    v->next = locals;
-    locals  = v;
+    v->name     = name;
+    v->ty       = ty;
+    v->is_local = true;
+    v->next     = locals;
+    locals      = v;
+    return v;
+}
+
+static Obj *new_global(char *name, Type *ty) {
+    Obj *v = calloc(1, sizeof(Obj));
+    v->name     = name;
+    v->ty       = ty;
+    v->is_local = false;
+    v->next     = globals;
+    globals     = v;
+    return v;
+}
+
+/* Create a synthetic global holding the bytes of a string literal,
+ * with type 'char[len+1]' (the +1 is the terminating NUL we append).
+ * Names are unique to the compilation. */
+Obj *new_string_literal(const char *bytes, int len) {
+    static int n = 0;
+    char  buf[32];
+    int   k = snprintf(buf, sizeof buf, ".L.str.%d", n++);
+    char *name = malloc(k + 1);
+    memcpy(name, buf, k + 1);
+
+    Obj *v = new_global(name, array_of(ty_char, len + 1));
+    char *data = malloc(len + 1);
+    memcpy(data, bytes, len);
+    data[len] = '\0';
+    v->init_data     = data;
+    v->init_data_len = len + 1;
     return v;
 }
 
@@ -167,7 +210,7 @@ static Node *compound_stmt(Token **rest, Token *tok) {
     Node head = {0};
     Node *cur = &head;
     while (!equal(tok, "}")) {
-        if (equal(tok, "int"))
+        if (is_typename(tok))
             cur = cur->next = declaration(&tok, tok);
         else
             cur = cur->next = stmt(&tok, tok);
@@ -187,7 +230,7 @@ static Node *compound_stmt(Token **rest, Token *tok) {
  * them. Initializers are lowered to assignment expression-statements
  * so codegen does not need a separate "declarator with init" node. */
 static Node *declaration(Token **rest, Token *tok) {
-    tok = skip(tok, "int");
+    Type *base = declspec(&tok, tok);
 
     Node head = {0};
     Node *cur = &head;
@@ -198,7 +241,7 @@ static Node *declaration(Token **rest, Token *tok) {
             tok = skip(tok, ",");
 
         /* Pointer prefixes: each '*' wraps the base type once. */
-        Type *ty = ty_int;
+        Type *ty = base;
         while (equal(tok, "*")) {
             ty  = pointer_to(ty);
             tok = tok->next;
@@ -347,6 +390,12 @@ static Node *primary(Token **rest, Token *tok) {
         return node;
     }
 
+    if (tok->kind == TK_STR) {
+        Obj *str = new_string_literal(tok->str, tok->str_len);
+        *rest = tok->next;
+        return new_var_node(str);
+    }
+
     if (tok->kind == TK_IDENT) {
         /* Function call: ident '(' ... ')' */
         if (equal(tok->next, "(")) {
@@ -401,10 +450,7 @@ static int parse_params(Token **rest, Token *tok) {
     while (!equal(tok, ")")) {
         if (n > 0)
             tok = skip(tok, ",");
-        if (!equal(tok, "int"))
-            error_at(tok->loc, "expected 'int' before parameter");
-        tok = tok->next;
-        Type *ty = ty_int;
+        Type *ty = declspec(&tok, tok);
         while (equal(tok, "*")) { ty = pointer_to(ty); tok = tok->next; }
         if (tok->kind != TK_IDENT)
             error_at(tok->loc, "expected parameter name");
@@ -417,10 +463,11 @@ static int parse_params(Token **rest, Token *tok) {
 }
 
 static Function *function(Token **rest, Token *tok) {
-    /* "int" name "(" params? ")" "{" body "}" */
-    if (!equal(tok, "int"))
-        error_at(tok->loc, "expected 'int' at start of function");
-    tok = tok->next;
+    /* declspec name "(" params? ")" "{" body "}" — return type is
+     * accepted but not used; mc only generates 'int'-returning code. */
+    if (!is_typename(tok))
+        error_at(tok->loc, "expected a type name at start of function");
+    declspec(&tok, tok);
 
     if (tok->kind != TK_IDENT)
         error_at(tok->loc, "expected function name");

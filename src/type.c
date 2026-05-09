@@ -12,11 +12,13 @@
  * 'p + (n * sizeof *p)' so codegen can stay scalar-only.
  */
 
-static Type ty_int_sentinel = { TY_INT, NULL, 0 };
-Type *ty_int = &ty_int_sentinel;
+static Type ty_int_sentinel  = { TY_INT,  NULL, 0 };
+static Type ty_char_sentinel = { TY_CHAR, NULL, 0 };
+Type *ty_int  = &ty_int_sentinel;
+Type *ty_char = &ty_char_sentinel;
 
 bool is_integer(Type *ty) {
-    return ty && ty->kind == TY_INT;
+    return ty && (ty->kind == TY_INT || ty->kind == TY_CHAR);
 }
 
 static bool is_pointer_like(Type *ty) {
@@ -40,6 +42,7 @@ Type *array_of(Type *base, int len) {
 
 int size_of(Type *ty) {
     if (!ty)                   return 8;
+    if (ty->kind == TY_CHAR)   return 1;
     if (ty->kind == TY_INT)    return 8;   /* we treat 'int' as 8 bytes */
     if (ty->kind == TY_PTR)    return 8;
     if (ty->kind == TY_ARRAY)  return size_of(ty->base) * ty->array_len;

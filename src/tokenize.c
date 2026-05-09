@@ -51,7 +51,6 @@ static void convert_keywords(Token *tok) {
             t->kind = TK_KEYWORD;
 }
 
-/* For now: integer literals, +, -, *, /, (, ). */
 static bool starts_with(const char *p, const char *q) {
     return strncmp(p, q, strlen(q)) == 0;
 }
@@ -62,6 +61,57 @@ static int read_punct(char *p) {
         if (starts_with(p, two[i]))
             return 2;
     return ispunct((unsigned char)*p) ? 1 : 0;
+}
+
+/* Decode a single escape sequence at p (which points at the char after
+ * the backslash). Returns the resolved byte and advances *q past the
+ * sequence. Recognises: \n \t \r \0 \\ \" \' and falls back to the
+ * literal char for anything else. */
+static char read_escape(char *p, char **q) {
+    *q = p + 1;
+    switch (*p) {
+    case 'n': return '\n';
+    case 't': return '\t';
+    case 'r': return '\r';
+    case '0': return '\0';
+    case '\\': return '\\';
+    case '"':  return '"';
+    case '\'': return '\'';
+    default:   return *p;
+    }
+}
+
+/* Tokenize a "...". `start` points at the opening quote. Returns a
+ * pointer to the byte just past the closing quote, and produces a
+ * TK_STR whose ->str holds the decoded bytes and ->str_len their
+ * count (NOT including a trailing '\0' — see mc.h). */
+static char *read_string_literal(Token *tok, char *start) {
+    /* First pass: walk to the closing quote to size the buffer. */
+    char *p = start + 1;
+    int   max_len = 0;
+    while (*p && *p != '"') {
+        if (*p == '\n') error_at(start, "unterminated string literal");
+        if (*p == '\\' && p[1]) p += 2; else p += 1;
+        max_len++;
+    }
+    if (*p != '"') error_at(start, "unterminated string literal");
+
+    char *buf = malloc(max_len);
+    int   n = 0;
+    for (char *q = start + 1; q < p; ) {
+        if (*q == '\\') {
+            buf[n++] = read_escape(q + 1, &q);
+        } else {
+            buf[n++] = *q++;
+        }
+    }
+
+    tok->kind    = TK_STR;
+    tok->loc     = start;
+    tok->len     = (int)(p + 1 - start);   /* including both quotes */
+    tok->str     = buf;
+    tok->str_len = n;
+    return p + 1;
 }
 
 Token *tokenize(char *p) {
@@ -95,6 +145,12 @@ Token *tokenize(char *p) {
             long  v = strtol(p, &p, 10);
             cur = cur->next = new_token(TK_NUM, q, p);
             cur->val = (int)v;
+            continue;
+        }
+
+        if (*p == '"') {
+            cur = cur->next = new_token(TK_STR, p, p);
+            p = read_string_literal(cur, p);
             continue;
         }
 

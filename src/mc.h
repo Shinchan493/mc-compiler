@@ -26,6 +26,7 @@ typedef enum {
     TK_PUNCT,
     TK_KEYWORD,
     TK_NUM,
+    TK_STR,
     TK_EOF,
 } TokenKind;
 
@@ -36,6 +37,12 @@ struct Token {
     int   val;
     char *loc;
     int   len;
+
+    /* TK_STR only: decoded string bytes (escapes resolved) and their
+     * length. The bytes do NOT include a trailing NUL — callers that
+     * need one must allocate len+1 and append it. */
+    char *str;
+    int   str_len;
 };
 
 Token *tokenize(char *p);
@@ -47,6 +54,7 @@ int    get_number(Token *tok);
 
 typedef enum {
     TY_INT,
+    TY_CHAR,
     TY_PTR,
     TY_ARRAY,
 } TypeKind;
@@ -58,6 +66,7 @@ struct Type {
 };
 
 extern Type *ty_int;
+extern Type *ty_char;
 
 bool   is_integer(Type *ty);
 Type  *pointer_to(Type *base);
@@ -72,8 +81,23 @@ struct Obj {
     Obj  *next;
     char *name;
     Type *ty;
+
+    /* Locals: stack offset from %rbp. Globals: 0 (unused). */
     int   offset;
+
+    /* Set on globals to mark them as such; locals are the default
+     * (false). String literals go through this path. */
+    bool  is_local;
+
+    /* Globals only: if non-NULL, the bytes the global is initialised
+     * to (e.g. the contents of a string literal, including '\0').
+     * Length = init_data_len. NULL means zero-initialised. */
+    char *init_data;
+    int   init_data_len;
 };
+
+extern Obj *globals;
+Obj *new_string_literal(const char *bytes, int len);
 
 typedef struct Function Function;
 struct Function {
