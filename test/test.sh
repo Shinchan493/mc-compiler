@@ -18,11 +18,6 @@ failed=()
 MC=./mc
 [ -x "$MC" ] || MC=./mc.exe
 
-# When CI is debugging an unknown regression failure, we want the
-# log to include the *first* failing case in full detail. This var
-# is consumed below; flip to "1" for permanent verbosity.
-VERBOSE_FAILURES=${MC_VERBOSE:-1}
-
 for src in test/case_*.c; do
   [ -e "$src" ] || continue
   expected=$(grep -oE 'expect=-?[0-9]+' "$src" | head -1 | cut -d= -f2)
@@ -49,12 +44,6 @@ for src in test/case_*.c; do
   else
     echo "FAIL $src: expected $expected got $got"
     fail=$((fail+1)); failed+=("$src")
-    if [ "$VERBOSE_FAILURES" = "1" ] && [ "$fail" = "1" ]; then
-      echo "  --- mc-emitted assembly (first failure) ---"
-      sed 's/^/    /' tmp.s
-      echo "  --- /proc/self/exe-style: file tmp.out ---"
-      file tmp.out 2>/dev/null || true
-    fi
   fi
 done
 

@@ -236,12 +236,18 @@ void codegen(Function *prog) {
             printf("  sub $%d, %%rsp\n", fn->stack_size);
 
         /* Spill incoming register args into their assigned local slots.
-         * `locals` is in reverse insertion order (most-recent first), so
-         * the first n_params entries are the parameters in REVERSE
-         * source order. Translate the index back. */
+         * Params are inserted into `locals` first (by parse_params),
+         * then any body-declared locals are pushed onto the head — so
+         * params live at the TAIL of the list, behind those body
+         * locals. Walk past the non-param head, then iterate through
+         * the params (reverse-source order in the list). */
         if (fn->n_params > 6)
             error("more than 6 parameters not supported");
+        int total = 0;
+        for (Obj *o = fn->locals; o; o = o->next) total++;
+        int skip = total - fn->n_params;
         Obj *p = fn->locals;
+        for (int i = 0; i < skip; i++) p = p->next;
         for (int i = 0; i < fn->n_params; i++) {
             int src_index = fn->n_params - 1 - i;
             printf("  mov %s, %d(%%rbp)\n", argreg[src_index], p->offset);
