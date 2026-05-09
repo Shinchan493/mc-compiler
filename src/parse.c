@@ -5,8 +5,11 @@
  *
  *   program       = function-def*
  *   function-def  = "int" ident "(" params? ")" "{" compound-stmt
- *   params        = "int" ident ("," "int" ident)*
- *   compound-stmt = stmt* "}"
+ *   params        = "int" "*"* ident ("," "int" "*"* ident)*
+ *   compound-stmt = (declaration | stmt)* "}"
+ *   declaration   = "int" declarator ("=" expr)?
+ *                       ("," declarator ("=" expr)?)* ";"
+ *   declarator    = "*"* ident
  *   stmt          = "return" expr ";"
  *                 | "if" "(" expr ")" stmt ("else" stmt)?
  *                 | "while" "(" expr ")" stmt
@@ -20,21 +23,23 @@
  *   relational    = add ("<" add | "<=" add | ">" add | ">=" add)*
  *   add           = mul ("+" mul | "-" mul)*
  *   mul           = unary ("*" unary | "/" unary)*
- *   unary         = ("+" | "-") unary | primary
+ *   unary         = ("+" | "-" | "&" | "*") unary | primary
  *   primary       = num
  *                 | ident ("(" args? ")")?
  *                 | "(" expr ")"
  *   args          = expr ("," expr)*
  *
- * Variables aren't fully declared yet — any identifier inside a body
- * introduces a new local on first reference (chibicc style). Function
- * parameters ARE declared explicitly with 'int' so they get inserted
- * into the local table up front.
+ * Variables may either be declared explicitly ('int x;', 'int *p;')
+ * or introduced implicitly by an assignment to a fresh identifier
+ * (chibicc-style auto-declaration; the implicit type is always 'int').
+ * Function parameters are declared explicitly with 'int' (optionally
+ * preceded by '*'s).
  */
 
 static Obj *locals;
 
 static Node *compound_stmt(Token **rest, Token *tok);
+static Node *declaration(Token **rest, Token *tok);
 static Node *stmt(Token **rest, Token *tok);
 static Node *expr_stmt(Token **rest, Token *tok);
 static Node *expr(Token **rest, Token *tok);
@@ -89,9 +94,10 @@ static Obj *find_var(Token *tok) {
     return NULL;
 }
 
-static Obj *new_lvar(char *name) {
+static Obj *new_lvar(char *name, Type *ty) {
     Obj *v = calloc(1, sizeof(Obj));
     v->name = name;
+    v->ty   = ty;
     v->next = locals;
     locals  = v;
     return v;
@@ -159,11 +165,60 @@ static Node *stmt(Token **rest, Token *tok) {
 static Node *compound_stmt(Token **rest, Token *tok) {
     Node head = {0};
     Node *cur = &head;
-    while (!equal(tok, "}"))
-        cur = cur->next = stmt(&tok, tok);
+    while (!equal(tok, "}")) {
+        if (equal(tok, "int"))
+            cur = cur->next = declaration(&tok, tok);
+        else
+            cur = cur->next = stmt(&tok, tok);
+    }
     Node *node = new_node(ND_BLOCK);
     node->body = head.next;
     *rest = tok->next;
+    return node;
+}
+
+/* declaration = "int" declarator ("=" expr)?
+ *                     ("," declarator ("=" expr)?)* ";"
+ * declarator  = "*"* ident
+ *
+ * Declarations introduce new locals and may optionally initialize
+ * them. Initializers are lowered to assignment expression-statements
+ * so codegen does not need a separate "declarator with init" node. */
+static Node *declaration(Token **rest, Token *tok) {
+    tok = skip(tok, "int");
+
+    Node head = {0};
+    Node *cur = &head;
+    int  i = 0;
+
+    while (!equal(tok, ";")) {
+        if (i++ > 0)
+            tok = skip(tok, ",");
+
+        /* Pointer prefixes: each '*' wraps the base type once. */
+        Type *ty = ty_int;
+        while (equal(tok, "*")) {
+            ty  = pointer_to(ty);
+            tok = tok->next;
+        }
+
+        if (tok->kind != TK_IDENT)
+            error_at(tok->loc, "expected variable name");
+        Obj *var = new_lvar(strndup_(tok->loc, tok->len), ty);
+        tok = tok->next;
+
+        if (!equal(tok, "="))
+            continue;
+
+        Node *lhs    = new_var_node(var);
+        Node *rhs    = assign(&tok, tok->next);
+        Node *assn   = new_binary(ND_ASSIGN, lhs, rhs);
+        cur = cur->next = new_unary(ND_EXPR_STMT, assn);
+    }
+
+    Node *node = new_node(ND_BLOCK);
+    node->body = head.next;
+    *rest = tok->next;       /* consume ';' */
     return node;
 }
 
@@ -237,7 +292,9 @@ static Node *mul(Token **rest, Token *tok) {
 
 static Node *unary(Token **rest, Token *tok) {
     if (equal(tok, "+")) return unary(rest, tok->next);
-    if (equal(tok, "-")) return new_unary(ND_NEG, unary(rest, tok->next));
+    if (equal(tok, "-")) return new_unary(ND_NEG,   unary(rest, tok->next));
+    if (equal(tok, "&")) return new_unary(ND_ADDR,  unary(rest, tok->next));
+    if (equal(tok, "*")) return new_unary(ND_DEREF, unary(rest, tok->next));
     return primary(rest, tok);
 }
 
@@ -274,7 +331,7 @@ static Node *primary(Token **rest, Token *tok) {
         }
 
         Obj *v = find_var(tok);
-        if (!v) v = new_lvar(strndup_(tok->loc, tok->len));
+        if (!v) v = new_lvar(strndup_(tok->loc, tok->len), ty_int);
         *rest = tok->next;
         return new_var_node(v);
     }
@@ -311,9 +368,11 @@ static int parse_params(Token **rest, Token *tok) {
         if (!equal(tok, "int"))
             error_at(tok->loc, "expected 'int' before parameter");
         tok = tok->next;
+        Type *ty = ty_int;
+        while (equal(tok, "*")) { ty = pointer_to(ty); tok = tok->next; }
         if (tok->kind != TK_IDENT)
             error_at(tok->loc, "expected parameter name");
-        new_lvar(strndup_(tok->loc, tok->len));
+        new_lvar(strndup_(tok->loc, tok->len), ty);
         n++;
         tok = tok->next;
     }

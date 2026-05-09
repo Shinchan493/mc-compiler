@@ -35,6 +35,11 @@ static void gen_addr(Node *node) {
         printf("  lea %d(%%rbp), %%rax\n", node->var->offset);
         return;
     }
+    if (node->kind == ND_DEREF) {
+        /* '&*p' simplifies to 'p' — generate p as a value. */
+        gen_expr(node->lhs);
+        return;
+    }
     error("not an lvalue");
 }
 
@@ -57,6 +62,13 @@ static void gen_expr(Node *node) {
         gen_expr(node->rhs);
         pop("%rdi");
         printf("  mov %%rax, (%%rdi)\n");
+        return;
+    case ND_ADDR:
+        gen_addr(node->lhs);
+        return;
+    case ND_DEREF:
+        gen_expr(node->lhs);
+        printf("  mov (%%rax), %%rax\n");
         return;
     case ND_FUNCALL: {
         int nargs = 0;
@@ -155,6 +167,11 @@ static void gen_stmt(Node *node) {
 }
 
 void codegen(Function *prog) {
+    /* Run the type pass over each function's AST so that pointer-arith
+     * scaling is materialised into the tree before codegen runs. */
+    for (Function *fn = prog; fn; fn = fn->next)
+        add_type(fn->body);
+
     printf("  .text\n");
     for (Function *fn = prog; fn; fn = fn->next) {
         printf("  .globl %s\n", fn->name);

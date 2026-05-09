@@ -9,6 +9,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Forward decls. Several headers below take pointers to these. */
+typedef struct Node Node;
+typedef struct Type Type;
+
 /* ===== error.c ===== */
 void error(const char *fmt, ...);
 void error_at(char *loc, const char *fmt, ...);
@@ -18,9 +22,9 @@ extern char *user_input;
 
 /* ===== tokenize.c ===== */
 typedef enum {
-    TK_IDENT,   /* identifiers */
+    TK_IDENT,
     TK_PUNCT,
-    TK_KEYWORD, /* return, if, else, while, for, ... */
+    TK_KEYWORD,
     TK_NUM,
     TK_EOF,
 } TokenKind;
@@ -39,25 +43,40 @@ bool   equal(Token *tok, const char *op);
 Token *skip(Token *tok, const char *op);
 int    get_number(Token *tok);
 
+/* ===== type.c ===== */
+
+typedef enum {
+    TY_INT,
+    TY_PTR,
+} TypeKind;
+
+struct Type {
+    TypeKind kind;
+    Type    *base;   /* TY_PTR : pointee type */
+};
+
+extern Type *ty_int;
+
+bool   is_integer(Type *ty);
+Type  *pointer_to(Type *base);
+void   add_type(Node *node);
+
 /* ===== parse.c ===== */
 
 typedef struct Obj Obj;
 struct Obj {
     Obj  *next;
     char *name;
-    int   offset;  /* offset from rbp */
+    Type *ty;
+    int   offset;
 };
 
 typedef struct Function Function;
 struct Function {
-    Function *next;        /* next function in program */
-    char     *name;        /* function name */
-    int       n_params;    /* number of parameters; the first n_params
-                              entries of `locals` (insertion order) are
-                              them. Since locals is built by pushing onto
-                              the head, walking `locals` finds them in
-                              REVERSE source order. */
-    struct Node *body;     /* compound statement (a chain of stmts) */
+    Function *next;
+    char     *name;
+    int       n_params;
+    struct Node *body;
     Obj   *locals;
     int    stack_size;
 };
@@ -72,33 +91,36 @@ typedef enum {
     ND_LT,
     ND_LE,
     ND_NEG,
-    ND_ASSIGN,      /* = */
-    ND_VAR,         /* variable reference */
+    ND_ASSIGN,
+    ND_ADDR,        /* unary & */
+    ND_DEREF,       /* unary * */
+    ND_VAR,
     ND_NUM,
-    ND_FUNCALL,     /* function call: funcname(args...) */
-    ND_RETURN,      /* return expr ; */
-    ND_BLOCK,       /* { ... } : body holds the chain */
-    ND_IF,          /* if (cond) then else els */
-    ND_FOR,         /* for / while loop */
-    ND_EXPR_STMT,   /* expr; */
+    ND_FUNCALL,
+    ND_RETURN,
+    ND_BLOCK,
+    ND_IF,
+    ND_FOR,
+    ND_EXPR_STMT,
 } NodeKind;
 
-typedef struct Node Node;
 struct Node {
     NodeKind kind;
-    Node *next;     /* statement chain */
+    Node *next;
+    Type *ty;       /* set by add_type after construction */
+    Token *tok;     /* representative token, for diagnostics */
     Node *lhs;
     Node *rhs;
-    Node *body;     /* ND_BLOCK : statement chain inside braces */
-    Node *init;     /* ND_FOR (for-loop init) */
-    Node *cond;     /* ND_IF, ND_FOR */
-    Node *inc;      /* ND_FOR (for-loop step) */
-    Node *then;     /* ND_IF, ND_FOR body */
-    Node *els;      /* ND_IF */
-    char *funcname; /* ND_FUNCALL */
-    Node *args;     /* ND_FUNCALL : argument chain via ->next */
-    Obj  *var;      /* ND_VAR */
-    int   val;      /* ND_NUM */
+    Node *body;
+    Node *init;
+    Node *cond;
+    Node *inc;
+    Node *then;
+    Node *els;
+    char *funcname;
+    Node *args;
+    Obj  *var;
+    int   val;
 };
 
 Function *parse(Token *tok);
