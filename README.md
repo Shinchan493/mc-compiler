@@ -99,6 +99,15 @@ mc-compiler/
     └── case_*.c               test programs
 ```
 
+## Reading the code
+
+If you've never seen a compiler before, start with
+[docs/EXPLAINED.md](docs/EXPLAINED.md) — a long, ground-up walkthrough
+of the whole project (what assembly is, what registers are, what every
+file does), written for a reader who knows basic programming but
+nothing about compilers. After reading it once, the source code will
+look small.
+
 ## Design notes
 
 See [docs/DEVLOG.md](docs/DEVLOG.md) for the longer-form decisions:
