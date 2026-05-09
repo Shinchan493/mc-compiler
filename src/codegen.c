@@ -108,12 +108,20 @@ static void gen_expr(Node *node) {
         for (int i = nargs - 1; i >= 0; i--)
             pop(argreg[i]);
 
-        /* Per System V, %al holds the number of vector args; zero for
-         * us since we don't pass floats. Also align stack to 16 bytes
-         * before the call. depth counts how many 8-byte slots are
-         * pushed; if odd, sub 8 to realign. */
-        printf("  mov $0, %%rax\n");
-        printf("  call %s\n", node->funcname);
+        /* System V requires %rsp to be 16-byte aligned at the call.
+         * The function prologue arrives that way, but if we are mid-
+         * expression with an odd number of 8-byte values pushed,
+         * %rsp is off by 8 — pad with a sub/add pair around the call.
+         * %al = 0 because we never pass floating-point args. */
+        if (depth % 2) {
+            printf("  sub $8, %%rsp\n");
+            printf("  mov $0, %%rax\n");
+            printf("  call %s\n", node->funcname);
+            printf("  add $8, %%rsp\n");
+        } else {
+            printf("  mov $0, %%rax\n");
+            printf("  call %s\n", node->funcname);
+        }
         return;
     }
     default:

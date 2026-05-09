@@ -55,7 +55,7 @@ Produces a single binary `mc`. Usage:
 
 ```
 mc <input.c> > out.s
-gcc -static out.s -o out
+gcc out.s -o out
 ./out
 ```
 

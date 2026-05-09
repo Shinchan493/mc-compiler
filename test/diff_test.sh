@@ -37,12 +37,12 @@ for src in test/case_*.c; do
     sed 's/^/    /' err
     fail=$((fail+1)); failed+=("$src"); continue
   fi
-  if ! gcc -static tmp_mc.s -o tmp_mc.out 2>err; then
+  if ! gcc tmp_mc.s -o tmp_mc.out 2>err; then
     echo "FAIL mc link: $src"
     sed 's/^/    /' err
     fail=$((fail+1)); failed+=("$src"); continue
   fi
-  if ! gcc -O0 -w -static "$src" -o tmp_gcc.out 2>err; then
+  if ! gcc -O0 -w "$src" -o tmp_gcc.out 2>err; then
     # gcc rejected the source — could be syntax mc accepts that gcc
     # doesn't, or vice versa. Skip with a note rather than fail.
     echo "SKIP (gcc rejected): $src"

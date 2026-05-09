@@ -31,7 +31,7 @@ for src in test/case_*.c; do
     sed 's/^/    /' err
     fail=$((fail+1)); failed+=("$src"); continue
   fi
-  if ! gcc -static tmp.s -o tmp.out 2>err; then
+  if ! gcc tmp.s -o tmp.out 2>err; then
     echo "FAIL assemble: $src"
     sed 's/^/    /' err
     fail=$((fail+1)); failed+=("$src"); continue
