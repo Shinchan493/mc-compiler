@@ -1,0 +1,27 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: build + regression + differential
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc make
+
+      - name: build mc
+        run: make
+
+      - name: regression tests
+        run: make test
+
+      - name: differential tests vs gcc -O0
+        run: make diff_test

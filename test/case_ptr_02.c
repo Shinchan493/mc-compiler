@@ -1,4 +1,6 @@
 // expect=5
+// no-diff: relies on mc's specific stack-frame layout (each local
+// gets an 8-byte slot in declaration order); gcc's layout differs.
 int main() {
     int a = 1;
     int b = 2;
