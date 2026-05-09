@@ -10,6 +10,15 @@
 static int depth;
 static const char *current_fn;
 
+/* When loading from an address whose type is "array", we instead leave
+ * the address itself in %rax (array-to-pointer decay; an array cannot
+ * be a value). Returns true if the load was suppressed. */
+static bool load_unless_array(Type *ty) {
+    if (ty && ty->kind == TY_ARRAY) return true;
+    printf("  mov (%%rax), %%rax\n");
+    return false;
+}
+
 /* Argument registers in order. */
 static const char *argreg[] = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
 
@@ -54,7 +63,7 @@ static void gen_expr(Node *node) {
         return;
     case ND_VAR:
         gen_addr(node);
-        printf("  mov (%%rax), %%rax\n");
+        load_unless_array(node->ty);
         return;
     case ND_ASSIGN:
         gen_addr(node->lhs);
@@ -68,7 +77,7 @@ static void gen_expr(Node *node) {
         return;
     case ND_DEREF:
         gen_expr(node->lhs);
-        printf("  mov (%%rax), %%rax\n");
+        load_unless_array(node->ty);
         return;
     case ND_FUNCALL: {
         int nargs = 0;

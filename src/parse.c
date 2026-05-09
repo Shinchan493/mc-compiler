@@ -49,6 +49,7 @@ static Node *relational(Token **rest, Token *tok);
 static Node *add(Token **rest, Token *tok);
 static Node *mul (Token **rest, Token *tok);
 static Node *unary(Token **rest, Token *tok);
+static Node *postfix(Token **rest, Token *tok);
 static Node *primary(Token **rest, Token *tok);
 
 /* --- AST builders --- */
@@ -179,7 +180,8 @@ static Node *compound_stmt(Token **rest, Token *tok) {
 
 /* declaration = "int" declarator ("=" expr)?
  *                     ("," declarator ("=" expr)?)* ";"
- * declarator  = "*"* ident
+ * declarator  = "*"* ident type-suffix
+ * type-suffix = ("[" num "]")?
  *
  * Declarations introduce new locals and may optionally initialize
  * them. Initializers are lowered to assignment expression-statements
@@ -204,8 +206,18 @@ static Node *declaration(Token **rest, Token *tok) {
 
         if (tok->kind != TK_IDENT)
             error_at(tok->loc, "expected variable name");
-        Obj *var = new_lvar(strndup_(tok->loc, tok->len), ty);
+        char *name = strndup_(tok->loc, tok->len);
         tok = tok->next;
+
+        /* Array suffix [N]. Only one dimension for now. */
+        if (equal(tok, "[")) {
+            tok = tok->next;
+            int len = get_number(tok);
+            tok = skip(tok->next, "]");
+            ty = array_of(ty, len);
+        }
+
+        Obj *var = new_lvar(name, ty);
 
         if (!equal(tok, "="))
             continue;
@@ -295,7 +307,31 @@ static Node *unary(Token **rest, Token *tok) {
     if (equal(tok, "-")) return new_unary(ND_NEG,   unary(rest, tok->next));
     if (equal(tok, "&")) return new_unary(ND_ADDR,  unary(rest, tok->next));
     if (equal(tok, "*")) return new_unary(ND_DEREF, unary(rest, tok->next));
-    return primary(rest, tok);
+    if (equal(tok, "sizeof")) {
+        /* `sizeof X` lowers to an int constant at parse time. We have
+         * to type the operand subtree first since add_type fills in
+         * the .ty fields that size_of consults. */
+        Node *node = unary(rest, tok->next);
+        add_type(node);
+        return new_num(size_of(node->ty));
+    }
+    return postfix(rest, tok);
+}
+
+/* postfix = primary ("[" expr "]")*
+ *
+ * a[i] is sugar for *(a + i). The pointer-arithmetic scaling for the
+ * '+' is done by add_type later; we just build the syntactic form. */
+static Node *postfix(Token **rest, Token *tok) {
+    Node *node = primary(&tok, tok);
+    while (equal(tok, "[")) {
+        Node *idx = expr(&tok, tok->next);
+        tok = skip(tok, "]");
+        Node *ptr_add = new_binary(ND_ADD, node, idx);
+        node = new_unary(ND_DEREF, ptr_add);
+    }
+    *rest = tok;
+    return node;
 }
 
 static Node *primary(Token **rest, Token *tok) {
@@ -349,7 +385,7 @@ static int align_to(int n, int align) {
 static void assign_lvar_offsets(Function *prog) {
     int offset = 0;
     for (Obj *v = prog->locals; v; v = v->next) {
-        offset += 8;
+        offset += size_of(v->ty);
         v->offset = -offset; /* below rbp */
     }
     prog->stack_size = align_to(offset, 16);

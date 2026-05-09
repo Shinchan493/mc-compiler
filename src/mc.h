@@ -48,17 +48,21 @@ int    get_number(Token *tok);
 typedef enum {
     TY_INT,
     TY_PTR,
+    TY_ARRAY,
 } TypeKind;
 
 struct Type {
     TypeKind kind;
-    Type    *base;   /* TY_PTR : pointee type */
+    Type    *base;       /* TY_PTR/TY_ARRAY : element type */
+    int      array_len;  /* TY_ARRAY only */
 };
 
 extern Type *ty_int;
 
 bool   is_integer(Type *ty);
 Type  *pointer_to(Type *base);
+Type  *array_of(Type *base, int len);
+int    size_of(Type *ty);
 void   add_type(Node *node);
 
 /* ===== parse.c ===== */
